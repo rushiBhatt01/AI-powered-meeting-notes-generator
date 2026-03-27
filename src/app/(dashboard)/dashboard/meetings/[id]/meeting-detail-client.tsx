@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import type { Meeting, Imp } from "@/db/schema";
 import { updateImp, deleteImp } from "@/app/actions/imp";
 import { deleteMeeting } from "@/app/actions/meeting";
@@ -145,7 +146,25 @@ function ImpCard({
 }
 
 export default function MeetingDetailClient({ meeting, imps: initialImps }: Props) {
+  const router = useRouter();
+
+  // Polling to auto-refresh the page until processing is complete
+  useEffect(() => {
+    if (meeting.status === "queued" || meeting.status === "processing") {
+      const interval = setInterval(() => {
+        router.refresh();
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [meeting.status, router]);
+
   const [localImps, setLocalImps] = useState(initialImps);
+
+  // Sync local state when Next.js router.refresh() provides new DB data
+  useEffect(() => {
+    setLocalImps(initialImps);
+  }, [initialImps]);
+
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [impToDelete, setImpToDelete] = useState<number | null>(null);
   const [persona, setPersona] = useState<Persona>("corporate");

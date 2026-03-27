@@ -47,3 +47,5 @@ _bmad-output/
 .agents/
 test.txt
 drizzle/
+nlp-backend/venv
+nlp-backend/__pycache__
