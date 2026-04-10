@@ -5,6 +5,8 @@ import TranscriptInput from "@/components/transcript-input";
 import FileDropzone from "@/components/file-dropzone";
 import { createMeeting } from "@/app/actions/meeting";
 
+const MAX_TRANSCRIPT_SUBMIT_BYTES = Math.floor(3.5 * 1024 * 1024);
+
 export default function NewMeetingPage() {
   const [transcript, setTranscript] = useState("");
   const [title, setTitle] = useState("");
@@ -12,12 +14,24 @@ export default function NewMeetingPage() {
     new Date().toISOString().split("T")[0]
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const handleFileExtract = (text: string) => {
+    setSubmitError(null);
     setTranscript(text);
   };
 
   const handleSubmit = async (finalTranscript: string) => {
+    setSubmitError(null);
+
+    const transcriptBytes = new Blob([finalTranscript]).size;
+    if (transcriptBytes > MAX_TRANSCRIPT_SUBMIT_BYTES) {
+      setSubmitError(
+        `Transcript is too large (${(transcriptBytes / 1024 / 1024).toFixed(1)}MB). Reduce it to 3.5MB or less before processing.`,
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await createMeeting({
@@ -27,6 +41,11 @@ export default function NewMeetingPage() {
       });
     } catch (error) {
       console.error("Failed to create meeting:", error);
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "Failed to create meeting. Please try again.",
+      );
       setIsSubmitting(false);
     }
   };
@@ -97,6 +116,11 @@ export default function NewMeetingPage() {
           onSubmit={handleSubmit}
           isSubmitting={isSubmitting}
         />
+        {submitError && (
+          <p className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            {submitError}
+          </p>
+        )}
       </div>
     </>
   );

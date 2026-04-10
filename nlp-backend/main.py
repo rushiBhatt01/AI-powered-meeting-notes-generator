@@ -1,10 +1,14 @@
 import os
 import shutil
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from faster_whisper import WhisperModel
 
+# Configure app with larger body size limits (500MB for large audio files like 20-min audio)
 app = FastAPI(title="Local NLP Backend")
 
 # Allow CORS for local Next.js frontend
@@ -15,6 +19,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Set max upload size to 500MB for large audio files
+MAX_UPLOAD_SIZE = 500 * 1024 * 1024  # 500MB
 
 # Initialize models (will download on first run)
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
@@ -32,32 +39,48 @@ model = model.to("cpu")
 class SummarizeRequest(BaseModel):
     text: str
 
+
+def save_upload_to_temp(upload, filename: str) -> str:
+    suffix = Path(filename).suffix
+    with NamedTemporaryFile(delete=False, prefix="transcribe_", suffix=suffix) as temp_file:
+        shutil.copyfileobj(upload, temp_file, length=1024 * 1024)
+        return temp_file.name
+
+
+def transcribe_file(temp_file_path: str) -> str:
+    segments, _ = whisper_model.transcribe(temp_file_path, beam_size=5)
+    return " ".join(segment.text.strip() for segment in segments if segment.text).strip()
+
 @app.post("/api/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded")
     
-    # Save uploaded file temporarily
-    temp_file_path = f"temp_{file.filename}"
+    # Check file size before processing
+    file.file.seek(0, 2)  # Seek to end
+    file_size = file.file.tell()
+    file.file.seek(0)  # Reset to beginning
+    
+    if file_size > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413, 
+            detail=f"File too large. Maximum size: {MAX_UPLOAD_SIZE / (1024*1024):.0f}MB"
+        )
+    
+    temp_file_path = None
     try:
-        with open(temp_file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        print(f"Transcribing {temp_file_path}...")
-        segments, info = whisper_model.transcribe(temp_file_path, beam_size=5)
-        
-        transcribed_text = ""
-        for segment in segments:
-            transcribed_text += segment.text + " "
-            
-        return {"text": transcribed_text.strip()}
+        temp_file_path = await run_in_threadpool(save_upload_to_temp, file.file, file.filename)
+        print(f"Transcribing {temp_file_path} (Size: {file_size / (1024*1024):.2f}MB)...")
+        transcribed_text = await run_in_threadpool(transcribe_file, temp_file_path)
+        return {"text": transcribed_text}
     
     except Exception as e:
         print(f"Transcription error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        await file.close()
         # Clean up temp file
-        if os.path.exists(temp_file_path):
+        if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
 @app.post("/api/summarize")

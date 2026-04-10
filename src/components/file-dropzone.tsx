@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import { validateFile, extractTextFromFile } from "@/lib/file-utils";
-import { transcribeAudio } from "@/app/actions/transcribe";
+import { transcribeAudioDirect } from "@/lib/transcription-client";
 
 interface FileDropzoneProps {
   onExtract: (text: string) => void;
@@ -31,47 +31,56 @@ export default function FileDropzone({ onExtract }: FileDropzoneProps) {
     if (validation.isAudio) {
       setIsTranscribing(true);
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        const text = await transcribeAudio(formData);
+        const text = await transcribeAudioDirect(file);
         onExtract(text);
-      } catch (e: any) {
-        setError(e.message || "Failed to transcribe audio file. Check API keys or try again.");
-      } finally {
-        setIsTranscribing(false);
-      }
-    } else {
-      setIsProcessing(true);
-      try {
-        const text = await extractTextFromFile(file);
-        onExtract(text);
-      } catch {
-        setError("Failed to extract text from document. Please try a different file.");
-      } finally {
-        setIsProcessing(false);
-      }
+        } catch (error) {
+          setError(
+            error instanceof Error
+              ? error.message
+              : "Failed to transcribe audio file. Try a smaller file or try again.",
+          );
+        } finally {
+          setIsTranscribing(false);
+        }
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const text = await extractTextFromFile(file);
+      onExtract(text);
+    } catch {
+      setError("Failed to extract text from document. Please try a different file.");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    const file = event.dataTransfer.files[0];
+    if (file) {
+      void handleFile(file);
+    }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
+  const handleDragOver = (event: React.DragEvent) => {
+    event.preventDefault();
     setIsDragging(true);
   };
 
   const handleDragLeave = () => setIsDragging(false);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
-    // Reset input so the same file selection triggers onChange again
-    if (inputRef.current) inputRef.current.value = "";
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      void handleFile(file);
+    }
+
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
   };
 
   return (
@@ -90,7 +99,7 @@ export default function FileDropzone({ onExtract }: FileDropzoneProps) {
         <input
           ref={inputRef}
           type="file"
-          accept=".txt,.docx,.mp3,.wav,.m4a"
+          accept=".txt,.docx,.mp3,.wav,.m4a,.aac,.flac,.ogg"
           onChange={handleInputChange}
           className="hidden"
         />
@@ -102,40 +111,33 @@ export default function FileDropzone({ onExtract }: FileDropzoneProps) {
               <p className="text-sm font-medium text-zinc-300">
                 {isTranscribing ? "Transcribing Audio..." : "Extracting Text..."}
               </p>
-              <p className="text-xs text-zinc-500 mt-1">
-                {isTranscribing ? "This might take up to a minute depending on file length." : `Reading ${fileName}`}
+              <p className="mt-1 text-xs text-zinc-500">
+                {isTranscribing
+                  ? "Large audio uploads can take several minutes to process."
+                  : `Reading ${fileName}`}
               </p>
             </div>
           </div>
         ) : (
           <>
-            <span className="mb-2 text-3xl">🎙️</span>
-            <p className="text-sm font-medium text-zinc-300">
-              Drop an audio file or document here
-            </p>
-            <p className="mt-1 text-xs text-indigo-400">
-              Click to browse files
-            </p>
+            <span className="mb-2 text-3xl">Audio</span>
+            <p className="text-sm font-medium text-zinc-300">Drop an audio file or document here</p>
+            <p className="mt-1 text-xs text-indigo-400">Click to browse files</p>
             <p className="mt-2 text-xs text-zinc-500">
-              Audio (.mp3, .wav, .m4a) up to 25MB<br />
+              Audio (.mp3, .wav, .m4a, .aac, .flac, .ogg) up to 4MB
+              <br />
               Text (.txt, .docx) up to 2MB
             </p>
           </>
         )}
       </div>
 
-      {/* Success indicator */}
-      {fileName && !isProcessing && !error && (
-        <p className="text-xs text-emerald-400">
-          ✓ Extracted text from {fileName}
-        </p>
+      {fileName && !isProcessing && !isTranscribing && !error && (
+        <p className="text-xs text-emerald-400">Processed {fileName}</p>
       )}
 
-      {/* Error message */}
       {error && (
-        <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">
-          ⚠ {error}
-        </p>
+        <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</p>
       )}
     </div>
   );

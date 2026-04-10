@@ -1,8 +1,9 @@
 import mammoth from "mammoth";
 
 const MAX_TEXT_SIZE = 2 * 1024 * 1024; // 2MB
-const MAX_AUDIO_SIZE = 25 * 1024 * 1024; // 25MB (Whisper limit)
-const ALLOWED_EXTENSIONS = [".txt", ".docx", ".mp3", ".wav", ".m4a"];
+// Vercel Functions enforce a 4.5MB request limit. Keep below that to avoid HTTP 413.
+const MAX_AUDIO_SIZE = 4 * 1024 * 1024; // 4MB
+const ALLOWED_EXTENSIONS = [".txt", ".docx", ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"];
 
 export interface FileValidationResult {
   valid: boolean;
@@ -16,11 +17,11 @@ export function validateFile(file: File): FileValidationResult {
   if (!ALLOWED_EXTENSIONS.includes(ext)) {
     return {
       valid: false,
-      error: `Unsupported file type "${ext}". Only .txt, .docx, .mp3, .wav, and .m4a are accepted.`,
+      error: `Unsupported file type "${ext}". Only .txt, .docx, .mp3, .wav, .m4a, .aac, .flac, and .ogg are accepted.`,
     };
   }
 
-  const isAudio = [".mp3", ".wav", ".m4a"].includes(ext);
+  const isAudio = [".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"].includes(ext);
   const sizeLimit = isAudio ? MAX_AUDIO_SIZE : MAX_TEXT_SIZE;
 
   if (file.size > sizeLimit) {

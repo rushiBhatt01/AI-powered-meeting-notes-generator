@@ -39,8 +39,8 @@ export default function LandingPage() {
             >
               Get Started
             </Link>
-            <Link href="/docs" className="text-sm font-semibold leading-6 text-white hover:text-zinc-300 transition-colors">
-              Read Docs <span aria-hidden="true">→</span>
+            <Link href="/dashboard/new" className="text-sm font-semibold leading-6 text-white hover:text-zinc-300 transition-colors">
+              Create Meeting <span aria-hidden="true">→</span>
             </Link>
           </div>
         </div>

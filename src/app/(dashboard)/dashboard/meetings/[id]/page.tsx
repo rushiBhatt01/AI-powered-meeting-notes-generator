@@ -1,6 +1,7 @@
+import { currentUser } from "@clerk/nextjs/server";
 import { db } from "@/db";
 import { meetings, imps } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import MeetingDetailClient from "./meeting-detail-client";
 
@@ -12,11 +13,12 @@ export default async function MeetingDetailPage({
   const { id } = await params;
   const meetingId = parseInt(id, 10);
   if (isNaN(meetingId)) notFound();
+  const user = await currentUser();
 
   const [meeting] = await db
     .select()
     .from(meetings)
-    .where(eq(meetings.id, meetingId))
+    .where(and(eq(meetings.id, meetingId), eq(meetings.user_id, user?.id ?? "")))
     .limit(1);
 
   if (!meeting) notFound();

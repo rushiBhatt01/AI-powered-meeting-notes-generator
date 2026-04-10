@@ -1,8 +1,10 @@
-"use server";
-
-import { auth } from "@clerk/nextjs/server";
-import { headers } from "next/headers";
 import { API_CONFIG } from "@/lib/api-config";
+
+const TRANSCRIPTION_TIMEOUT_MS = 25 * 60 * 1000;
+
+type TranscriptionResponse = {
+  text?: string;
+};
 
 type ErrorResponse = {
   detail?: string;
@@ -15,7 +17,7 @@ function getUnexpectedResponseMessage(response: Response, body: string): string 
   const endpoint = API_CONFIG.getUrl("transcribe");
 
   if (trimmedBody.startsWith("<!DOCTYPE") || trimmedBody.startsWith("<html")) {
-    return `Unexpected HTML response from ${endpoint}. Call the route directly from the client or forward auth cookies when using a Server Action.`;
+    return `Unexpected HTML response from ${endpoint}. Check that serverless mode is configured correctly and that you're signed in.`;
   }
 
   return trimmedBody || `Unexpected non-JSON response from ${endpoint} (HTTP ${response.status}).`;
@@ -40,8 +42,8 @@ async function getErrorMessage(response: Response): Promise<string> {
     }
 
     const errorText = await response.text();
-    if (errorText.trim()) {
-      return getUnexpectedResponseMessage(response, errorText);
+    if (errorText.trim().length > 0) {
+      return errorText;
     }
   } catch {
     // Fall through to the generic message below.
@@ -50,7 +52,7 @@ async function getErrorMessage(response: Response): Promise<string> {
   return `Failed to transcribe audio file (HTTP ${response.status})`;
 }
 
-async function getSuccessPayload(response: Response) {
+async function getSuccessPayload(response: Response): Promise<TranscriptionResponse> {
   const contentType = response.headers.get("content-type") ?? "";
 
   if (!contentType.includes("application/json")) {
@@ -58,43 +60,46 @@ async function getSuccessPayload(response: Response) {
     throw new Error(getUnexpectedResponseMessage(response, responseText));
   }
 
-  return (await response.json()) as { text?: string };
+  return (await response.json()) as TranscriptionResponse;
 }
 
-export async function transcribeAudio(formData: FormData) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Unauthorized");
+export async function transcribeAudioDirect(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
 
-  const file = formData.get("file") as File | null;
-  if (!file) throw new Error("No file provided");
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TRANSCRIPTION_TIMEOUT_MS);
 
   try {
-    // For large files, use a longer timeout (20 minutes for processing + buffer)
-    const controller = new AbortController();
-    const timeout = 25 * 60 * 1000; // 25 minutes
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-    const cookie = (await headers()).get("cookie");
-
     const response = await fetch(API_CONFIG.getUrl("transcribe"), {
       method: "POST",
       body: formData,
       signal: controller.signal,
-      headers: cookie ? { cookie } : undefined,
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(await getErrorMessage(response));
     }
 
     const data = await getSuccessPayload(response);
-    return data.text as string;
+    if (!data.text) {
+      throw new Error("Transcription response did not include text.");
+    }
+
+    return data.text;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("Transcription took too long. Please try with a shorter audio file.");
+      throw new Error("Transcription took too long. Please try again or use a shorter audio file.");
     }
-    console.error("Transcription Error:", error);
-    throw new Error(error instanceof Error ? error.message : "Failed to transcribe audio file");
+
+    if (error instanceof TypeError) {
+      throw new Error(
+        `Could not reach the transcription endpoint at ${API_CONFIG.getUrl("transcribe")}. Check NEXT_PUBLIC_APP_URL and Vercel deployment settings.`,
+      );
+    }
+
+    throw error instanceof Error ? error : new Error("Failed to transcribe audio file");
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

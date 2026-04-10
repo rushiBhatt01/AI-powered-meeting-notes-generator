@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Meeting, Imp } from "@/db/schema";
 import { updateImp, deleteImp } from "@/app/actions/imp";
-import { deleteMeeting } from "@/app/actions/meeting";
+import { deleteMeeting, retryMeetingProcessing } from "@/app/actions/meeting";
 import CopyButton from "@/components/copy-button";
 import ConfirmModal from "@/components/ui/confirm-modal";
 import { formatImpsAsMarkdown } from "@/lib/clipboard-utils";
@@ -147,6 +147,7 @@ function ImpCard({
 
 export default function MeetingDetailClient({ meeting, imps: initialImps }: Props) {
   const router = useRouter();
+  const [isRetrying, startRetryTransition] = useTransition();
 
   // Polling to auto-refresh the page until processing is complete
   useEffect(() => {
@@ -168,6 +169,7 @@ export default function MeetingDetailClient({ meeting, imps: initialImps }: Prop
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [impToDelete, setImpToDelete] = useState<number | null>(null);
   const [persona, setPersona] = useState<Persona>("corporate");
+  const [retryError, setRetryError] = useState<string | null>(null);
 
   const summaryImps = localImps.filter((i) => i.type === "summary");
   const actionItems = localImps.filter((i) => i.type === "action_item");
@@ -189,6 +191,22 @@ export default function MeetingDetailClient({ meeting, imps: initialImps }: Prop
 
   const handleDeleteMeeting = async () => {
     await deleteMeeting(meeting.id);
+  };
+
+  const handleRetryProcessing = () => {
+    setRetryError(null);
+
+    startRetryTransition(() => {
+      void retryMeetingProcessing(meeting.id)
+        .then(() => {
+          router.refresh();
+        })
+        .catch((error) => {
+          setRetryError(
+            error instanceof Error ? error.message : "Failed to retry processing.",
+          );
+        });
+    });
   };
 
   return (
@@ -247,7 +265,7 @@ export default function MeetingDetailClient({ meeting, imps: initialImps }: Prop
       </div>
 
       {/* Summary Section */}
-      {summaryImps.length > 0 && (
+      {meeting.status === "completed" && summaryImps.length > 0 && (
         <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/30 p-6 transition-all">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
@@ -264,7 +282,7 @@ export default function MeetingDetailClient({ meeting, imps: initialImps }: Prop
       )}
 
       {/* Action Items */}
-      {actionItems.length > 0 && (
+      {meeting.status === "completed" && actionItems.length > 0 && (
         <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/30 p-6 transition-all">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
@@ -283,7 +301,7 @@ export default function MeetingDetailClient({ meeting, imps: initialImps }: Prop
       )}
 
       {/* Decisions */}
-      {decisions.length > 0 && (
+      {meeting.status === "completed" && decisions.length > 0 && (
         <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/30 p-6 transition-all">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
@@ -302,7 +320,7 @@ export default function MeetingDetailClient({ meeting, imps: initialImps }: Prop
       )}
 
       {/* Deadlines */}
-      {deadlines.length > 0 && (
+      {meeting.status === "completed" && deadlines.length > 0 && (
         <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/30 p-6 transition-all">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
@@ -343,6 +361,37 @@ export default function MeetingDetailClient({ meeting, imps: initialImps }: Prop
           <p className="mt-1 text-sm text-zinc-500">
             The Imp is analyzing your transcript. This may take a moment.
           </p>
+        </div>
+      )}
+
+      {meeting.status === "failed" && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-red-300">
+                Processing failed
+              </h3>
+              <p className="mt-1 text-sm text-zinc-400">
+                Retry processing with the transcript already stored for this meeting.
+                You do not need to upload or transcribe the file again.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRetryProcessing}
+              disabled={isRetrying}
+              className="rounded-md bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isRetrying ? "Retrying..." : "Retry Processing"}
+            </button>
+          </div>
+
+          {retryError && (
+            <p className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
+              {retryError}
+            </p>
+          )}
         </div>
       )}
 
