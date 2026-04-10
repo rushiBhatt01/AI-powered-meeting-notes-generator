@@ -72,6 +72,45 @@ function getSafeBlobPath(fileName: string): string {
   return `audio/${Date.now()}-${cleanName}`;
 }
 
+function shouldRetryBlobUploadWithoutMultipart(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("blob service is currently not available") ||
+    message.includes("failed to fetch") ||
+    message.includes("network request failed") ||
+    message.includes("cors")
+  );
+}
+
+async function uploadAudioBlob(file: File, abortSignal: AbortSignal) {
+  const pathname = getSafeBlobPath(file.name);
+  const uploadOptions = {
+    access: "public" as const,
+    handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
+    abortSignal,
+  };
+
+  try {
+    return await upload(pathname, file, {
+      ...uploadOptions,
+      multipart: true,
+    });
+  } catch (error) {
+    if (!shouldRetryBlobUploadWithoutMultipart(error)) {
+      throw error;
+    }
+
+    return await upload(pathname, file, {
+      ...uploadOptions,
+      multipart: false,
+    });
+  }
+}
+
 async function startTranscriptionFromAudioUrl(audioUrl: string, signal: AbortSignal): Promise<string> {
   const response = await fetch(API_CONFIG.getUrl("transcribe"), {
     method: "POST",
@@ -106,12 +145,7 @@ export async function transcribeAudioDirect(file: File): Promise<string> {
 
   try {
     if (file.size > MAX_INLINE_UPLOAD_BYTES) {
-      const blobUpload = await upload(getSafeBlobPath(file.name), file, {
-        access: "public",
-        handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
-        multipart: true,
-        abortSignal: controller.signal,
-      });
+      const blobUpload = await uploadAudioBlob(file, controller.signal);
 
       return await startTranscriptionFromAudioUrl(blobUpload.url, controller.signal);
     }
