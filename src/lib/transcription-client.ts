@@ -72,43 +72,14 @@ function getSafeBlobPath(fileName: string): string {
   return `audio/${Date.now()}-${cleanName}`;
 }
 
-function shouldRetryBlobUploadWithoutMultipart(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("blob service is currently not available") ||
-    message.includes("failed to fetch") ||
-    message.includes("network request failed") ||
-    message.includes("cors")
-  );
-}
-
 async function uploadAudioBlob(file: File, abortSignal: AbortSignal) {
   const pathname = getSafeBlobPath(file.name);
-  const uploadOptions = {
+  return await upload(pathname, file, {
     access: "public" as const,
     handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
     abortSignal,
-  };
-
-  try {
-    return await upload(pathname, file, {
-      ...uploadOptions,
-      multipart: true,
-    });
-  } catch (error) {
-    if (!shouldRetryBlobUploadWithoutMultipart(error)) {
-      throw error;
-    }
-
-    return await upload(pathname, file, {
-      ...uploadOptions,
-      multipart: false,
-    });
-  }
+    multipart: false,
+  });
 }
 
 async function startTranscriptionFromAudioUrl(audioUrl: string, signal: AbortSignal): Promise<string> {
