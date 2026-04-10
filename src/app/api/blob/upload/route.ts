@@ -36,7 +36,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       onUploadCompleted: async ({ blob, tokenPayload }) => {
         console.log("Audio blob upload completed.", {
           pathname: blob.pathname,
-          size: blob.size,
+          url: blob.url,
           tokenPayload,
         });
       },

@@ -51,7 +51,7 @@ nlp-backend/
 nlp-backend/venv
 nlp-backend/__pycache__
 venv/
-AGENTS.md
+
 
 # local docs / setup notes
 /docs/
@@ -61,7 +61,8 @@ AGENTS.md
 /QUICK_*.md
 /SERVER_ACTIONS_CONFIG.md
 /SETUP_*.md
-
+/AGENTS.md
+/CLAUDE.md
 # local helper/setup scripts
 /setup-api.bat
 /switch-mode.bat
