@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import TranscriptInput from "@/components/transcript-input";
 import FileDropzone from "@/components/file-dropzone";
-import { createMeeting } from "@/app/actions/meeting";
 
 const MAX_TRANSCRIPT_SUBMIT_BYTES = Math.floor(3.5 * 1024 * 1024);
 
 export default function NewMeetingPage() {
+  const router = useRouter();
   const [transcript, setTranscript] = useState("");
   const [title, setTitle] = useState("");
   const [meetingDate, setMeetingDate] = useState(
@@ -34,11 +35,36 @@ export default function NewMeetingPage() {
 
     setIsSubmitting(true);
     try {
-      await createMeeting({
-        title,
-        meetingDate,
-        rawTranscript: finalTranscript,
+      const response = await fetch("/api/meetings", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+          meetingDate,
+          rawTranscript: finalTranscript,
+        }),
       });
+
+      if (!response.ok) {
+        const contentType = response.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          const payload = (await response.json()) as { error?: string };
+          throw new Error(payload.error || "Failed to create meeting.");
+        }
+
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to create meeting.");
+      }
+
+      const payload = (await response.json()) as { meetingId?: number };
+      if (typeof payload.meetingId !== "number") {
+        throw new Error("Meeting was created but no meeting ID was returned.");
+      }
+
+      router.push(`/dashboard/meetings/${payload.meetingId}`);
+      router.refresh();
     } catch (error) {
       console.error("Failed to create meeting:", error);
       setSubmitError(

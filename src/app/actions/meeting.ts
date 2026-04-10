@@ -3,74 +3,10 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/db";
 import { meetings, imps } from "@/db/schema";
-import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { eq, and } from "drizzle-orm";
-import { inngest } from "@/inngest/client";
-import { processMeetingTranscript } from "@/inngest/process-transcript";
-
-function isInngestDevMode() {
-  if (process.env.NODE_ENV === "production") {
-    return false;
-  }
-
-  const devValue = process.env.INNGEST_DEV;
-  if (!devValue) {
-    return false;
-  }
-
-  return devValue === "1" || devValue === "true" || devValue.startsWith("http");
-}
-
-async function dispatchMeetingProcessing(meetingId: number) {
-  const inngestDevMode = isInngestDevMode();
-
-  const missingInngestEnv = [
-    !process.env.INNGEST_EVENT_KEY ? "INNGEST_EVENT_KEY" : null,
-    !process.env.INNGEST_SIGNING_KEY ? "INNGEST_SIGNING_KEY" : null,
-  ].filter((value): value is string => Boolean(value));
-
-  if (!inngestDevMode && missingInngestEnv.length > 0) {
-    await db
-      .update(meetings)
-      .set({ status: "failed", updated_at: new Date() })
-      .where(eq(meetings.id, meetingId));
-
-    throw new Error(
-      `Missing required Inngest env var(s): ${missingInngestEnv.join(", ")}. Set them in Vercel to enable meeting processing.`,
-    );
-  }
-
-  try {
-    await inngest.send({
-      name: "transcript.process",
-      data: { meetingId },
-    });
-  } catch (error) {
-    if (!inngestDevMode) {
-      await db
-        .update(meetings)
-        .set({ status: "failed", updated_at: new Date() })
-        .where(eq(meetings.id, meetingId));
-
-      throw error;
-    }
-
-    console.error(
-      "Inngest event dispatch failed in dev mode; falling back to local processing.",
-      error,
-    );
-
-    after(async () => {
-      try {
-        await processMeetingTranscript(meetingId);
-      } catch (fallbackError) {
-        console.error("Local transcript processing fallback failed.", fallbackError);
-      }
-    });
-  }
-}
+import { createMeetingForUser, dispatchMeetingProcessing } from "@/lib/meeting-workflow";
 
 export async function createMeeting(formData: {
   title: string;
@@ -83,25 +19,8 @@ export async function createMeeting(formData: {
     throw new Error("Unauthorized");
   }
 
-  const title = formData.title.trim() || "Untitled Meeting";
-  const meetingDate = formData.meetingDate
-    ? new Date(formData.meetingDate)
-    : new Date();
-
-  const [inserted] = await db
-    .insert(meetings)
-    .values({
-      user_id: userId,
-      title,
-      meeting_date: meetingDate,
-      raw_transcript: formData.rawTranscript,
-      status: "queued",
-    })
-    .returning({ id: meetings.id });
-
-  await dispatchMeetingProcessing(inserted.id);
-
-  redirect(`/dashboard/meetings/${inserted.id}`);
+  const meetingId = await createMeetingForUser(userId, formData);
+  redirect(`/dashboard/meetings/${meetingId}`);
 }
 
 export async function retryMeetingProcessing(meetingId: number) {
