@@ -22,12 +22,25 @@ type AssemblyAITranscriptResponse = {
   text?: string;
 };
 
+type TranscribeRequest = {
+  audioUrl?: unknown;
+};
+
 function errorResponse(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 async function getResponseMessage(response: Response, fallback: string) {
@@ -67,50 +80,74 @@ export async function POST(request: Request) {
     return errorResponse("ASSEMBLYAI_API_KEY is not configured.", 500);
   }
 
-  let formData: FormData;
+  const contentType = request.headers.get("content-type") ?? "";
+  let audioUrl = "";
 
   try {
-    formData = await request.formData();
-  } catch {
-    return errorResponse("Invalid upload payload.", 400);
-  }
+    if (contentType.includes("application/json")) {
+      let payload: TranscribeRequest;
 
-  const fileEntry = formData.get("file");
-  if (!(fileEntry instanceof File)) {
-    return errorResponse("No audio file provided.", 400);
-  }
+      try {
+        payload = (await request.json()) as TranscribeRequest;
+      } catch {
+        return errorResponse("Invalid JSON payload.", 400);
+      }
 
-  if (fileEntry.size === 0) {
-    return errorResponse("Audio file is empty.", 400);
-  }
+      audioUrl = typeof payload.audioUrl === "string" ? payload.audioUrl.trim() : "";
+      if (!audioUrl) {
+        return errorResponse("audioUrl is required.", 400);
+      }
 
-  if (fileEntry.size > MAX_AUDIO_UPLOAD_BYTES) {
-    return errorResponse(
-      `Audio file is too large (${(fileEntry.size / 1024 / 1024).toFixed(1)}MB). Maximum size is 4MB for serverless uploads.`,
-      413,
-    );
-  }
+      if (!isHttpUrl(audioUrl)) {
+        return errorResponse("audioUrl must be a valid http(s) URL.", 400);
+      }
+    } else {
+      let formData: FormData;
 
-  try {
-    const uploadResponse = await fetch(ASSEMBLYAI_UPLOAD_URL, {
-      method: "POST",
-      headers: {
-        authorization: assemblyAIKey,
-        "content-type": "application/octet-stream",
-      },
-      body: await fileEntry.arrayBuffer(),
-    });
+      try {
+        formData = await request.formData();
+      } catch {
+        return errorResponse("Invalid upload payload.", 400);
+      }
 
-    if (!uploadResponse.ok) {
-      return errorResponse(
-        await getResponseMessage(uploadResponse, "Failed to upload audio to AssemblyAI."),
-        502,
-      );
-    }
+      const fileEntry = formData.get("file");
+      if (!(fileEntry instanceof File)) {
+        return errorResponse("No audio file provided.", 400);
+      }
 
-    const uploadData = (await uploadResponse.json()) as AssemblyAIUploadResponse;
-    if (!uploadData.upload_url) {
-      return errorResponse("AssemblyAI did not return an upload URL.", 502);
+      if (fileEntry.size === 0) {
+        return errorResponse("Audio file is empty.", 400);
+      }
+
+      if (fileEntry.size > MAX_AUDIO_UPLOAD_BYTES) {
+        return errorResponse(
+          `Audio file is too large (${(fileEntry.size / 1024 / 1024).toFixed(1)}MB). Maximum inline upload size is 4MB. For larger files, use direct blob upload.`,
+          413,
+        );
+      }
+
+      const uploadResponse = await fetch(ASSEMBLYAI_UPLOAD_URL, {
+        method: "POST",
+        headers: {
+          authorization: assemblyAIKey,
+          "content-type": "application/octet-stream",
+        },
+        body: await fileEntry.arrayBuffer(),
+      });
+
+      if (!uploadResponse.ok) {
+        return errorResponse(
+          await getResponseMessage(uploadResponse, "Failed to upload audio to AssemblyAI."),
+          502,
+        );
+      }
+
+      const uploadData = (await uploadResponse.json()) as AssemblyAIUploadResponse;
+      if (!uploadData.upload_url) {
+        return errorResponse("AssemblyAI did not return an upload URL.", 502);
+      }
+
+      audioUrl = uploadData.upload_url;
     }
 
     const transcriptResponse = await fetch(ASSEMBLYAI_TRANSCRIPT_URL, {
@@ -120,7 +157,7 @@ export async function POST(request: Request) {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        audio_url: uploadData.upload_url,
+        audio_url: audioUrl,
         speech_models: ASSEMBLYAI_SPEECH_MODELS,
       }),
     });

@@ -1,6 +1,9 @@
+import { upload } from "@vercel/blob/client";
 import { API_CONFIG } from "@/lib/api-config";
 
 const TRANSCRIPTION_TIMEOUT_MS = 25 * 60 * 1000;
+const MAX_INLINE_UPLOAD_BYTES = 4 * 1024 * 1024;
+const MAX_BLOB_AUDIO_BYTES = 500 * 1024 * 1024;
 
 type TranscriptionResponse = {
   text?: string;
@@ -25,7 +28,7 @@ function getUnexpectedResponseMessage(response: Response, body: string): string 
 
 async function getErrorMessage(response: Response): Promise<string> {
   if (response.status === 413) {
-    return "Audio file is too large for serverless upload. Use an audio file up to 4MB.";
+    return "Audio file is too large for inline serverless upload. Large files are uploaded directly first, then transcribed.";
   }
 
   const contentType = response.headers.get("content-type") ?? "";
@@ -63,14 +66,58 @@ async function getSuccessPayload(response: Response): Promise<TranscriptionRespo
   return (await response.json()) as TranscriptionResponse;
 }
 
+function getSafeBlobPath(fileName: string): string {
+  const cleanName = fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
+  return `audio/${Date.now()}-${cleanName}`;
+}
+
+async function startTranscriptionFromAudioUrl(audioUrl: string, signal: AbortSignal): Promise<string> {
+  const response = await fetch(API_CONFIG.getUrl("transcribe"), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ audioUrl }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+
+  const data = await getSuccessPayload(response);
+  if (!data.text) {
+    throw new Error("Transcription response did not include text.");
+  }
+
+  return data.text;
+}
+
 export async function transcribeAudioDirect(file: File): Promise<string> {
-  const formData = new FormData();
-  formData.append("file", file);
+  if (file.size > MAX_BLOB_AUDIO_BYTES) {
+    throw new Error(
+      `Audio file is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum size is 500MB.`,
+    );
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TRANSCRIPTION_TIMEOUT_MS);
 
   try {
+    if (file.size > MAX_INLINE_UPLOAD_BYTES) {
+      const blobUpload = await upload(getSafeBlobPath(file.name), file, {
+        access: "public",
+        handleUploadUrl: API_CONFIG.getUrl("blobUpload"),
+        multipart: true,
+        abortSignal: controller.signal,
+      });
+
+      return await startTranscriptionFromAudioUrl(blobUpload.url, controller.signal);
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
     const response = await fetch(API_CONFIG.getUrl("transcribe"), {
       method: "POST",
       body: formData,
@@ -94,7 +141,7 @@ export async function transcribeAudioDirect(file: File): Promise<string> {
 
     if (error instanceof TypeError) {
       throw new Error(
-        `Could not reach the transcription endpoint at ${API_CONFIG.getUrl("transcribe")}. Check NEXT_PUBLIC_APP_URL and Vercel deployment settings.`,
+        `Could not reach the upload/transcription backend. Check NEXT_PUBLIC_APP_URL, BLOB_READ_WRITE_TOKEN, and Vercel deployment settings.`,
       );
     }
 

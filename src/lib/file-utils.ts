@@ -1,8 +1,8 @@
 import mammoth from "mammoth";
 
 const MAX_TEXT_SIZE = 2 * 1024 * 1024; // 2MB
-// Vercel Functions enforce a 4.5MB request limit. Keep below that to avoid HTTP 413.
-const MAX_AUDIO_SIZE = 4 * 1024 * 1024; // 4MB
+// Large audio is uploaded directly to Blob from the browser before transcription.
+const MAX_AUDIO_SIZE = 500 * 1024 * 1024; // 500MB
 const ALLOWED_EXTENSIONS = [".txt", ".docx", ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"];
 
 export interface FileValidationResult {

@@ -9,6 +9,7 @@
 const endpoints = {
   summarize: "/api/summarize",
   transcribe: "/api/transcribe",
+  blobUpload: "/api/blob/upload",
 } as const;
 
 function stripTrailingSlash(value: string) {

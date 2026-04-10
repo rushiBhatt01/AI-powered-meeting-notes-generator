@@ -23,7 +23,7 @@ function getUnexpectedResponseMessage(response: Response, body: string): string 
 
 async function getErrorMessage(response: Response): Promise<string> {
   if (response.status === 413) {
-    return "Audio file is too large for serverless upload. Use an audio file up to 4MB.";
+    return "Audio file is too large for inline serverless upload.";
   }
 
   const contentType = response.headers.get("content-type") ?? "";

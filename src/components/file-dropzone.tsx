@@ -124,7 +124,7 @@ export default function FileDropzone({ onExtract }: FileDropzoneProps) {
             <p className="text-sm font-medium text-zinc-300">Drop an audio file or document here</p>
             <p className="mt-1 text-xs text-indigo-400">Click to browse files</p>
             <p className="mt-2 text-xs text-zinc-500">
-              Audio (.mp3, .wav, .m4a, .aac, .flac, .ogg) up to 4MB
+              Audio (.mp3, .wav, .m4a, .aac, .flac, .ogg) up to 500MB
               <br />
               Text (.txt, .docx) up to 2MB
             </p>
