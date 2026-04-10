@@ -4,6 +4,7 @@ import { API_CONFIG } from "@/lib/api-config";
 const TRANSCRIPTION_TIMEOUT_MS = 25 * 60 * 1000;
 const MAX_INLINE_UPLOAD_BYTES = 4 * 1024 * 1024;
 const MAX_BLOB_AUDIO_BYTES = 500 * 1024 * 1024;
+const BLOB_UPLOAD_ENDPOINT = "/api/blob/upload";
 
 type TranscriptionResponse = {
   text?: string;
@@ -107,7 +108,7 @@ export async function transcribeAudioDirect(file: File): Promise<string> {
     if (file.size > MAX_INLINE_UPLOAD_BYTES) {
       const blobUpload = await upload(getSafeBlobPath(file.name), file, {
         access: "public",
-        handleUploadUrl: API_CONFIG.getUrl("blobUpload"),
+        handleUploadUrl: BLOB_UPLOAD_ENDPOINT,
         multipart: true,
         abortSignal: controller.signal,
       });
