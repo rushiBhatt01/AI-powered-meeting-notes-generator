@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "AI Meeting Notes Generator",
   description:
-    "The Zero-Cost Intelligence Portal for your Meetings. Transform transcripts into actionable insights using Gemini 2.5 Flash.",
+    "Transform meeting transcripts into structured summaries, action items, decisions, and deadlines with a serverless AI workflow.",
 };
 
 export default function RootLayout({

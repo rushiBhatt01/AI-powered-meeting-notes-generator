@@ -1,36 +1,97 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI-powered Notes
 
-## Getting Started
+AI-powered Notes is a serverless meeting intelligence app built with Next.js 16. It turns meeting transcripts and audio recordings into structured outputs your team can act on.
 
-First, run the development server:
+## Project description
+
+The application combines Clerk authentication, Postgres + Drizzle ORM, AssemblyAI transcription, Gemini-based extraction, and Inngest background processing to produce:
+
+- Meeting summary
+- Action items
+- Decisions
+- Deadlines
+
+Results are saved per meeting and surfaced in a dashboard with processing states (`queued`, `processing`, `completed`, `failed`).
+
+## Tech stack
+
+| Layer | Tools |
+| --- | --- |
+| Framework | Next.js 16 (App Router), React 19, TypeScript |
+| Auth | Clerk |
+| Database | Postgres (Neon-compatible), Drizzle ORM |
+| AI | Gemini (`gemini-2.5-flash-lite`) |
+| Transcription | AssemblyAI |
+| Background jobs | Inngest |
+| Large uploads | Vercel Blob |
+
+## Project workflow
+
+1. User signs in and opens `/dashboard/new`.
+2. User provides transcript input in one of three ways:
+   - Paste transcript text directly.
+   - Upload `.txt`/`.docx` (text is extracted client-side).
+   - Upload audio (`.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`).
+3. Audio path behavior:
+   - `<= 4MB`: sent inline to `/api/transcribe`.
+   - `> 4MB`: uploaded browser -> Vercel Blob -> `/api/transcribe` with `audioUrl`.
+4. The transcript is submitted to `/api/meetings`.
+5. A meeting is created in Postgres with status `queued`.
+6. An Inngest event (`transcript.process`) is dispatched.
+7. Inngest worker updates status to `processing`, runs Gemini extraction, stores `imps`, then marks the meeting `completed` (or `failed` on error).
+8. Meeting detail page auto-refreshes until processing completes.
+
+## Local development (serverless workflow)
+
+### 1. Install dependencies
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Configure environment variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Create `.env.local` from `.env.example`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Windows PowerShell:
+  ```powershell
+  Copy-Item .env.example .env.local
+  ```
+- macOS/Linux:
+  ```bash
+  cp .env.example .env.local
+  ```
 
-## Learn More
+Fill these values in `.env.local`:
 
-To learn more about Next.js, take a look at the following resources:
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk frontend auth |
+| `CLERK_SECRET_KEY` | Yes | Clerk server auth |
+| `DATABASE_URL` | Yes | Postgres connection |
+| `GEMINI_API_KEY` | Yes | Summarization/extraction |
+| `ASSEMBLYAI_API_KEY` | Yes | Audio transcription |
+| `NEXT_PUBLIC_APP_URL` | Yes | Base URL for server-side internal API calls |
+| `INNGEST_EVENT_KEY` | Yes (prod) | Inngest event publishing |
+| `INNGEST_SIGNING_KEY` | Yes (prod) | Inngest signature verification |
+| `BLOB_READ_WRITE_TOKEN` | Required for `>4MB` audio | Browser-to-Blob upload flow |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 3. Start dev servers
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run dev:next
+```
 
-## Deploy on Vercel
+This starts both:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Next.js app on `http://localhost:3000`
+- Inngest dev server (for local event handling)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Serverless setup and deployment
+
+Use [`DEPLOYMENT.md`](./DEPLOYMENT.md) for the full serverless setup, Vercel deployment, Inngest connection, and troubleshooting guide.
+
+## Notes
+
+- The repo includes `nlp-backend/` for legacy/local experimentation, but the active app flow is serverless.
+- If you change DB schema, use the Drizzle config at `drizzle.config.ts`.

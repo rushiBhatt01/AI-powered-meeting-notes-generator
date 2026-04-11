@@ -52,7 +52,8 @@ nlp-backend/venv
 nlp-backend/__pycache__
 venv/
 
-
+.codex
+.github
 # local docs / setup notes
 /docs/
 /DEPLOYMENT.md
